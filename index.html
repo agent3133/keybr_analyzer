@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>keybr Stats Analyzer</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <link rel="stylesheet" href="keybr_analyzer.css">
+</head>
+<body>
+
+<header>
+  <h1>keybr Stats Analyzer</h1>
+  <p>Analyze typing sessions and track your progress over time.</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="analyze">Analyze session</button>
+  <button class="tab-btn"        data-tab="progress">Progress</button>
+</nav>
+
+<!-- ═══════════════════════════════ ANALYZE TAB ═══════════════════════════════ -->
+<div id="tab-analyze" class="tab-panel active">
+
+  <div id="z-in">
+    <p style="font-size:13px;color:var(--text2);margin-bottom:10px;">
+      Paste your keybr.com JSON export — a single session <code>{}</code> or an array <code>[]</code>.
+    </p>
+    <textarea id="z-raw" placeholder='{"layout":"en-us","timeStamp":"2026-04-04T09:01:27.000Z","length":118,"time":27695,"errors":5,"speed":255.6,"histogram":[]}'></textarea>
+    <div class="row">
+      <button id="z-file-btn">Open file…</button>
+      <button id="z-go">Analyze ↗</button>
+      <input id="z-file" type="file" accept=".json,application/json" style="display:none;">
+      <span id="z-msg" class="msg"></span>
+    </div>
+  </div>
+
+  <div id="z-dash" style="display:none;">
+    <div class="cards" id="z-cards"></div>
+
+    <p class="label">Reaction time heatmap — average ms per key</p>
+    <div id="z-kbd"></div>
+
+    <div class="charts-grid">
+      <div>
+        <p class="label">Slowest keys</p>
+        <div id="z-sw"></div>
+      </div>
+      <div>
+        <p class="label">Error rate per key</p>
+        <div id="z-ew"></div>
+      </div>
+    </div>
+
+    <div id="z-tw">
+      <p class="label">WPM across sessions</p>
+      <div id="z-tleg"></div>
+      <div id="z-tc-wrap"><canvas id="z-tc"></canvas></div>
+      <div class="chart-nav-wrap" style="margin-top:8px;margin-bottom:0;">
+        <input id="z-trend-nav" class="chart-nav" type="range" min="0" max="100" value="0" step="1" disabled>
+        <p class="chart-nav-note">Use wheel or pinch to zoom, then drag this slider to pan left/right.</p>
+      </div>
+    </div>
+
+    <p class="label">Finger analysis — avg reaction time (ms)</p>
+    <div class="finger-grid" id="z-fg"></div>
+
+    <p class="label" style="margin-bottom:6px;">Keys to focus on</p>
+    <div id="z-wk" style="margin-bottom:1.5rem;"></div>
+
+    <div class="row">
+      <button id="z-rs">← New analysis</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════ PROGRESS TAB ═══════════════════════════════ -->
+<div id="tab-progress" class="tab-panel">
+
+  <div id="p-empty" class="progress-empty">
+    <strong>No history yet</strong>
+    Analyze a session and click "Save to history" to start tracking your progress.
+  </div>
+
+  <div id="p-dash" style="display:none;">
+    <div class="progress-header">
+      <div>
+        <p class="label" style="margin:0;">Daily progress</p>
+        <p id="p-subtitle"></p>
+      </div>
+      <button id="p-clear" class="btn-danger">Clear history</button>
+    </div>
+
+    <div class="cards" id="p-cards"></div>
+
+    <p class="label">WPM over time</p>
+    <div class="chart-legend" id="p-legend"></div>
+    <div class="subplot-wrap">
+      <div class="chart-main-wrap"><canvas id="p-main"></canvas></div>
+      <div class="chart-count-wrap"><canvas id="p-counts"></canvas></div>
+    </div>
+    <div class="chart-nav-wrap">
+      <input id="p-main-nav" class="chart-nav" type="range" min="0" max="100" value="0" step="1" disabled>
+      <p class="chart-nav-note">Use wheel or pinch to zoom, then drag this slider to pan left/right.</p>
+    </div>
+
+    <p class="label">Current progress estimation — last 10 active days</p>
+    <p id="p-reg-subtitle" style="font-size:13px;color:var(--text2);margin-bottom:10px;"></p>
+    <div class="chart-reg-wrap"><canvas id="p-reg"></canvas></div>
+    <div class="chart-nav-wrap">
+      <input id="p-reg-nav" class="chart-nav" type="range" min="0" max="100" value="0" step="1" disabled>
+      <p class="chart-nav-note">Use wheel or pinch to zoom, then drag this slider to pan left/right.</p>
+    </div>
+    <div class="cards" id="p-reg-cards" style="margin-top:0;margin-bottom:1.5rem;"></div>
+  </div>
+</div>
+
+
+<script src="keybr_analyzer.js"></script>
+</body>
+</html>
