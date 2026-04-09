@@ -94,6 +94,7 @@ const EL = Object.freeze({
   pReg: document.getElementById('p-reg'),
   zFileBtn: document.getElementById('z-file-btn'),
   zFile: document.getElementById('z-file'),
+  zDemo: document.getElementById('z-demo'),
   zRaw: document.getElementById('z-raw'),
   zGo: document.getElementById('z-go'),
   zMsg: document.getElementById('z-msg'),
@@ -168,6 +169,97 @@ function sessionDate(s) { return s.timeStamp.slice(0, 10); }
 function fmtDate(str) {
   const [y, m, d] = str.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+}
+
+function makeRng(seed = 42) {
+  let s = seed >>> 0;
+  return function rand() {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+function generateDemoSessions(days = 45, startWpm = 34, endWpm = 56) {
+  const rand = makeRng(42);
+  const chars = ' etaoinshrdlucmfwygpbvkxqjz';
+  const weights = [18,13,9,8,8,7,7,6,6,6,4,4,3,3,2,2,2,2,2,1,1,1,1,0.4,0.2,0.2,0.2];
+  const wsum = weights.reduce((a,b)=>a+b,0);
+  const cum = [];
+  let acc = 0;
+  for (const w of weights) { acc += w / wsum; cum.push(acc); }
+
+  const pickChar = () => {
+    const r = rand();
+    for (let i = 0; i < cum.length; i++) if (r <= cum[i]) return chars[i];
+    return 'e';
+  };
+
+  const keyDifficulty = {
+    ' ':0.75, a:0.9, s:0.85, d:0.88, f:0.85, g:1.05, h:1.0, j:0.88, k:0.9, l:0.92,
+    q:1.4, w:1.05, e:0.92, r:0.95, t:0.98, y:1.1, u:0.95, i:0.92, o:1.0, p:1.2,
+    z:1.45, x:1.25, c:1.0, v:1.05, b:1.15, n:0.88, m:0.95
+  };
+
+  const gaussian = (mean = 0, std = 1) => {
+    const u1 = Math.max(1e-8, rand());
+    const u2 = rand();
+    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + z0 * std;
+  };
+
+  const start = new Date();
+  start.setUTCHours(0,0,0,0);
+  start.setUTCDate(start.getUTCDate() - days);
+  const sessions = [];
+
+  for (let day = 0; day <= days; day++) {
+    if (rand() > 0.68) continue;
+    const perDay = 2 + Math.floor(rand() * 4);
+    for (let n = 0; n < perDay; n++) {
+      const t = sessions.length / 120;
+      const targetWpm = startWpm + (endWpm - startWpm) * Math.max(0, Math.min(1, t));
+      const wpm = Math.max(15, gaussian(targetWpm, targetWpm * 0.07));
+      const length = 150 + Math.floor(rand() * 201);
+      const msPerChar = 60000 / (wpm * 5);
+      const time = Math.round(length * msPerChar);
+      const errRate = Math.max(0, Math.min(0.2, gaussian(0.05, 0.02)));
+      const errors = Math.round(length * errRate);
+
+      const hist = {};
+      for (let i = 0; i < length; i++) {
+        const ch = pickChar();
+        if (!hist[ch]) hist[ch] = { hitCount:0, missCount:0, weightedMs:0 };
+        const diff = keyDifficulty[ch] || 1;
+        const ttype = Math.max(50, gaussian(msPerChar * diff, msPerChar * 0.09));
+        const missRate = Math.max(0, Math.min(0.3, gaussian(0.04, 0.02) * diff));
+        hist[ch].hitCount += 1;
+        hist[ch].missCount += rand() < missRate ? 1 : 0;
+        hist[ch].weightedMs += ttype;
+      }
+
+      const histogram = Object.entries(hist).map(([ch, v]) => ({
+        codePoint: ch.codePointAt(0),
+        hitCount: v.hitCount,
+        missCount: v.missCount,
+        timeToType: +(v.weightedMs / v.hitCount).toFixed(1),
+      }));
+
+      const ts = new Date(start);
+      ts.setUTCDate(start.getUTCDate() + day);
+      ts.setUTCHours(8 + Math.floor(rand() * 15), Math.floor(rand() * 60), Math.floor(rand() * 60), Math.floor(rand() * 1000));
+
+      sessions.push({
+        timeStamp: ts.toISOString().replace(/\.\d{3}Z$/, m => m),
+        length,
+        time,
+        errors,
+        histogram,
+      });
+    }
+  }
+
+  sessions.sort((a,b) => a.timeStamp < b.timeStamp ? -1 : 1);
+  return sessions;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -976,6 +1068,27 @@ EL.zFile.addEventListener('change', e => {
   reader.readAsText(file);
   // Reset so the same file can be re-selected later if needed
   e.target.value = '';
+});
+
+EL.zDemo.addEventListener('click', async () => {
+  const msg = EL.zMsg;
+  msg.textContent = '';
+  try {
+    const response = await fetch('demo_keybr_history.json', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const demoSessions = await response.json();
+    if (!Array.isArray(demoSessions) || !demoSessions[0]?.histogram) {
+      throw new Error('unexpected demo JSON format');
+    }
+
+    EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
+    EL.zGo.click();
+  } catch (e) {
+    const demoSessions = generateDemoSessions();
+    EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
+    EL.zGo.click();
+    msg.textContent = 'Loaded built-in demo data (file loading is blocked in this browser context).';
+  }
 });
 
 EL.zGo.addEventListener('click', () => {
