@@ -1073,21 +1073,32 @@ EL.zFile.addEventListener('change', e => {
 EL.zDemo.addEventListener('click', async () => {
   const msg = EL.zMsg;
   msg.textContent = '';
-  try {
-    const response = await fetch('demo_keybr_history.json', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const demoSessions = await response.json();
-    if (!Array.isArray(demoSessions) || !demoSessions[0]?.histogram) {
-      throw new Error('unexpected demo JSON format');
-    }
 
-    EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
-    EL.zGo.click();
+  // Always have a ready fallback so the button never appears "dead".
+  let demoSessions = generateDemoSessions();
+  let loadedFromFile = false;
+
+  try {
+    const response = await Promise.race([
+      fetch('demo_keybr_history.json', { cache: 'no-store' }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500)),
+    ]);
+
+    if (response?.ok) {
+      const fromFile = await response.json();
+      if (Array.isArray(fromFile) && fromFile[0]?.histogram) {
+        demoSessions = fromFile;
+        loadedFromFile = true;
+      }
+    }
   } catch (e) {
-    const demoSessions = generateDemoSessions();
-    EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
-    EL.zGo.click();
-    msg.textContent = 'Loaded built-in demo data (file loading is blocked in this browser context).';
+    // Keep using generated fallback data.
+  }
+
+  EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
+  EL.zGo.click();
+  if (!loadedFromFile) {
+    msg.textContent = 'Loaded built-in demo data.';
   }
 });
 
