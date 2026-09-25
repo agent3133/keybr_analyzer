@@ -10,7 +10,7 @@ const FMAP = {
 };
 const FNAME = { LP:'L. Pinky', LR:'L. Ring', LM:'L. Middle', LI:'L. Index', TH:'Thumb', RI:'R. Index', RM:'R. Middle', RR:'R. Ring', RP:'R. Pinky' };
 const FORD  = ['LP','LR','LM','LI','TH','RI','RM','RR','RP'];
-const LS_KEY = 'keybr_history';
+const LS_KEY = 'keybr_history';   // pre-IndexedDB history location, read once for migration
 const ANALYZE_CONFIG = Object.freeze({
   SPACE_CODEPOINT: 32,
   SLOWEST_KEYS_LIMIT: 8,
@@ -281,24 +281,107 @@ function generateDemoSessions(days = 45, startWpm = 34, endWpm = 56) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCAL STORAGE  (persists across browser sessions)
+// HISTORY STORAGE  (IndexedDB, persists across browser sessions)
+//
+// One record per session, keyed by sessionKey(). localStorage's ~5 MB cap
+// was too small for full keybr histories, so older versions' localStorage
+// history is moved here on first use.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // A session is usable if it has a histogram; history also needs a timeStamp
 function isValidSession(s)  { return !!s && typeof s === 'object' && Array.isArray(s.histogram); }
 function isHistorySession(s) { return isValidSession(s) && typeof s.timeStamp === 'string'; }
 
-function loadHistory() {
-  try {
-    const r = localStorage.getItem(LS_KEY);
-    const parsed = r ? JSON.parse(r) : [];
-    return Array.isArray(parsed) ? parsed.filter(isHistorySession) : [];
-  }
-  catch(e) { return []; }
+// Dedupe key: keybr's synced data only keeps whole seconds, while a file export
+// can carry milliseconds, so compare timestamps at second precision.
+function sessionKey(s) {
+  const ms = Date.parse(s.timeStamp);
+  return Number.isNaN(ms) ? s.timeStamp : Math.floor(ms / 1000);
 }
-function saveHistory(sessions) {
-  try { localStorage.setItem(LS_KEY, JSON.stringify(sessions)); return true; }
-  catch(e) { return false; }
+
+const DB_NAME = 'keybr_analyzer', DB_STORE = 'sessions', DB_VERSION = 1;
+let dbPromise = null;
+
+function idbRequest(req) {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error || new Error('transaction aborted'));
+  });
+}
+
+function openHistoryDB() {
+  if (!dbPromise) {
+    dbPromise = (async () => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => req.result.createObjectStore(DB_STORE);
+      const db = await idbRequest(req);
+      await migrateLocalStorageHistory(db);
+      return db;
+    })();
+    dbPromise.catch(() => { dbPromise = null; });
+  }
+  return dbPromise;
+}
+
+// Write sessions not already stored. Returns how many were added.
+async function putNewSessions(db, sessions) {
+  const tx = db.transaction(DB_STORE, 'readwrite');
+  const store = tx.objectStore(DB_STORE);
+  const seen = new Set(await idbRequest(store.getAllKeys()));
+  let added = 0;
+  for (const s of sessions) {
+    if (!isHistorySession(s)) continue;
+    const key = sessionKey(s);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    store.put(s, key);
+    added++;
+  }
+  await idbDone(tx);
+  return added;
+}
+
+async function migrateLocalStorageHistory(db) {
+  let raw = null;
+  try { raw = localStorage.getItem(LS_KEY); } catch(e) {}
+  if (!raw) return;
+  let parsed = [];
+  try { parsed = JSON.parse(raw); } catch(e) {}
+  if (Array.isArray(parsed)) await putNewSessions(db, parsed);
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
+}
+
+async function loadHistory() {
+  try {
+    const db = await openHistoryDB();
+    const all = await idbRequest(db.transaction(DB_STORE).objectStore(DB_STORE).getAll());
+    return all.filter(isHistorySession).sort((a, b) => sessionKey(a) - sessionKey(b));
+  } catch(e) {
+    return [];
+  }
+}
+
+// Auto-save to history, deduplicating by timestamp. Returns { added, error }.
+async function saveToHistory(sessions) {
+  try {
+    const db = await openHistoryDB();
+    return { added: await putNewSessions(db, sessions), error: '' };
+  } catch(e) {
+    return { added: 0, error: `Couldn't save sessions to history: ${e?.message || 'browser storage is unavailable'}.` };
+  }
+}
+
+async function clearHistory() {
+  const db = await openHistoryDB();
+  const tx = db.transaction(DB_STORE, 'readwrite');
+  tx.objectStore(DB_STORE).clear();
+  await idbDone(tx);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -772,8 +855,8 @@ function buildDailyStats(sessions) {
   });
 }
 
-function renderProgress() {
-  const history = loadHistory();
+async function renderProgress() {
+  const history = await loadHistory();
   const emptyEl = EL.pEmpty;
   const dashEl  = EL.pDash;
 
@@ -1122,31 +1205,7 @@ function showDashboard(sessions, statusText = '', warn = false) {
   analyze(sessions);
 }
 
-// Dedupe key: keybr's synced data only keeps whole seconds, while a file export
-// can carry milliseconds, so compare timestamps at second precision.
-function sessionKey(s) {
-  const ms = Date.parse(s.timeStamp);
-  return Number.isNaN(ms) ? s.timeStamp : Math.floor(ms / 1000);
-}
-
-// Auto-save to history, deduplicating by timestamp. Returns { added, error }.
-function saveToHistory(sessions) {
-  const existing = loadHistory();
-  const seen = new Set(existing.map(sessionKey));
-  const newOnes = [];
-  for (const s of sessions) {
-    if (!isHistorySession(s) || seen.has(sessionKey(s))) continue;
-    seen.add(sessionKey(s));
-    newOnes.push(s);
-  }
-  if (!newOnes.length) return { added: 0, error: '' };
-  if (!saveHistory([...existing, ...newOnes])) {
-    return { added: 0, error: `Couldn't save ${newOnes.length} new session${newOnes.length!==1?'s':''} to history: browser storage is full or blocked.` };
-  }
-  return { added: newOnes.length, error: '' };
-}
-
-EL.zGo.addEventListener('click', () => {
+EL.zGo.addEventListener('click', async () => {
   const raw = EL.zRaw.value.trim();
   const msg = EL.zMsg;
   if (!raw) { msg.textContent='Paste some JSON first.'; return; }
@@ -1159,7 +1218,7 @@ EL.zGo.addEventListener('click', () => {
     if (!sessions.length) throw new Error('no sessions with a histogram field');
   } catch(e) { msg.textContent='Invalid JSON: '+e.message; return; }
 
-  const { error: saveError } = saveToHistory(sessions);
+  const { error: saveError } = await saveToHistory(sessions);
   const skippedNote = skipped ? `Skipped ${skipped} entr${skipped!==1?'ies':'y'} without a histogram. ` : '';
   showDashboard(sessions, (skippedNote + saveError).trim(), !!saveError);
 });
@@ -1188,7 +1247,7 @@ function receiveKeybrSync() {
     EL.zMsg.textContent = 'No data arrived from keybr.com. Click the bookmark on keybr.com again.';
   }, SYNC_WAIT_MS);
 
-  window.addEventListener('message', function onMessage(e) {
+  window.addEventListener('message', async function onMessage(e) {
     if (e.source !== opener || !KEYBR_ORIGINS.includes(e.origin)) return;
     if (e.data?.type !== 'keybr-analyzer:data') return;
     clearInterval(timer);
@@ -1198,7 +1257,7 @@ function receiveKeybrSync() {
 
     const sessions = Array.isArray(e.data.sessions) ? e.data.sessions.filter(isValidSession) : [];
     if (!sessions.length) { EL.zMsg.textContent = 'keybr.com sent no usable sessions.'; return; }
-    const { added, error } = saveToHistory(sessions);
+    const { added, error } = await saveToHistory(sessions);
     const from = e.data.source === 'browser' ? 'this browser on keybr.com' : 'your keybr.com account';
     const status = error || `Synced ${sessions.length} session${sessions.length!==1?'s':''} from ${from} · ${added} new.`;
     showDashboard(sessions, status, !!error);
@@ -1228,9 +1287,9 @@ EL.zRs.addEventListener('click', () => {
   lastAnalyzed = null;
 });
 
-EL.pClear.addEventListener('click', () => {
+EL.pClear.addEventListener('click', async () => {
   if (!confirm('Clear all saved history? This cannot be undone.')) return;
-  try { localStorage.removeItem(LS_KEY); } catch(e) {}
+  try { await clearHistory(); } catch(e) {}
   renderProgress();
 });
 
