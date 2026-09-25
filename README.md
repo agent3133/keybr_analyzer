@@ -20,7 +20,7 @@ Everything runs in your browser. Your data is never uploaded anywhere.
 - **Daily stats:** average, 80th percentile, 95th percentile and best WPM for each day, with the number of tests you did that day.
 - **Progress estimate:** a regression over your last 10 active days that shows how many WPM you gain per 10 tests, with a short projection ahead.
 
-Each session you analyze is saved in your browser's `localStorage`, and repeated sessions are skipped, so your history builds up over time. Use **Clear history** on the Progress tab to start over.
+Each session you analyze is saved in your browser's IndexedDB storage, and repeated sessions are skipped, so your history builds up over time. There's room for many thousands of sessions. Use **Clear history** on the Progress tab to start over.
 
 ## Usage
 
