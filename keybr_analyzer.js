@@ -38,7 +38,7 @@ const PROGRESS_CONFIG = Object.freeze({
   IMPROVEMENT_BLOCK_TESTS: 10,
   FIT_STRONG_R2: 0.5,
   FIT_MODERATE_R2: 0.2,
-  ALIGN_EPSILON: 0.5,
+  ACC_SUGGESTED_MIN: 90,
 });
 const CHART_STYLE = Object.freeze({
   AXIS_TICK_FONT_SIZE: 11,
@@ -47,8 +47,12 @@ const CHART_STYLE = Object.freeze({
   MAIN_LINE_TENSION: 0.35,
   TREND_LINE_TENSION: 0.3,
   REG_LINE_WIDTH: 2,
+  // Fixed y-axis widths shared by the WPM and count subplots so their plot areas line up
+  SUBPLOT_AXIS_WIDTH_LEFT: 52,
+  SUBPLOT_AXIS_WIDTH_RIGHT: 48,
   DASH_80: Object.freeze([5, 3]),
   DASH_95: Object.freeze([2, 2]),
+  DASH_ACC: Object.freeze([1, 2]),
   REG_EXTRAP_DASH: Object.freeze([5, 4]),
   COLORS: Object.freeze({
     wpm: '#378ADD',
@@ -146,6 +150,19 @@ function heatRGB(t, mn, mx) {
   return [Math.round(lerp(240,215,s)), Math.round(lerp(200,45,s)), Math.round(lerp(50,30,s))];
 }
 function heatCSS(t, mn, mx) { const [r,g,b] = heatRGB(t,mn,mx); return `rgb(${r},${g},${b})`; }
+
+// Text colour for an [r,g,b] background: whichever of dark/white has higher WCAG contrast
+const TEXT_DARK = '#1a1a18', TEXT_LIGHT = '#ffffff';
+function relLuminance([r, g, b]) {
+  const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function textOn(rgb) {
+  const L = relLuminance(rgb);
+  const vsWhite = 1.05 / (L + 0.05);
+  const vsDark  = (L + 0.05) / (relLuminance([26, 26, 24]) + 0.05);
+  return vsDark >= vsWhite ? TEXT_DARK : TEXT_LIGHT;
+}
 
 // WPM: characters typed divided by 5 (= 1 "word"), divided by elapsed minutes
 function sessionWPM(s) { if (!s?.length || !s?.time) return 0; return (s.length / 5) / (s.time / 60000); }
@@ -445,12 +462,14 @@ function renderKeyboardHeatmap(chars, noBg, noFg) {
       if (item.isMeta) kd.classList.add('meta');
       if (item.isFlexible) kd.classList.add('flex-fill');
 
-      let bg, fg='rgba(255,255,255,0.95)', timeTxt='—', accTxt='—';
+      let bg, fg, timeTxt='—', accTxt='—';
       if (item.isMeta) {
         bg = noBg;
         fg = noFg;
       } else if (cd && cd.avg > 0) {
-        bg = heatCSS(cd.avg, mn, mx);
+        const rgb = heatRGB(cd.avg, mn, mx);
+        bg = `rgb(${rgb.join(',')})`;
+        fg = textOn(rgb);
         timeTxt = Math.round(cd.avg)+'ms';
         accTxt = (100 - cd.er).toFixed(0)+'%';
       } else {
@@ -577,6 +596,7 @@ function renderFingerAnalysis(chars) {
     const d = document.createElement('div');
     d.className='finger-card';
     d.style.background=`rgb(${r},${g},${b})`;
+    d.style.color=textOn([r,g,b]);
     d.innerHTML=`<div class="finger-name">${FNAME[f]}</div><div class="finger-val">${avg>0?Math.round(avg)+'ms':'—'}</div><div class="finger-hits">${fd[f].hits} hits</div>`;
     fgEl.appendChild(d);
   });
@@ -617,8 +637,11 @@ function renderFocusKeys(chars, mn, mx) {
   wkEl.appendChild(note);
 }
 
+let lastAnalyzed = null;   // kept so charts can be redrawn when the theme changes
+
 function analyze(sessions) {
   if (!sessions?.length) return;
+  lastAnalyzed = sessions;
   const palette = analyzePalette();
   const chars = buildCharacterStats(sessions);
   if (!chars.length) return;
@@ -656,6 +679,9 @@ function linReg(xs, ys) {
 }
 
 const pC = { main:null, count:null, reg:null };
+
+// Chart.js afterFit hook that pins an axis to a fixed pixel width
+function fixAxisWidth(px) { return scale => { scale.width = px; }; }
 function dP(k) { if (pC[k]) { try { pC[k].destroy(); } catch(e){} pC[k]=null; } }
 
 function syncChartNav(chart, nav, fullMin, fullMax) {
@@ -787,12 +813,14 @@ function renderProgress() {
     p80WPM: CHART_STYLE.COLORS.p80WPM,
     p95WPM: CHART_STYLE.COLORS.p95WPM,
     bestWPM: CHART_STYLE.COLORS.bestWPM,
+    avgAcc: CHART_STYLE.COLORS.acc,
   };
   EL.pLegend.innerHTML = [
     { key:'avgWPM',  label:'Avg WPM',      dashes:'' },
     { key:'p80WPM',  label:'80th pct WPM', dashes:'5,3' },
     { key:'p95WPM',  label:'95th pct WPM', dashes:'2,2' },
     { key:'bestWPM', label:'Best WPM',     dashes:'' },
+    { key:'avgAcc',  label:'Avg accuracy % (right axis)', dashes:'1,2' },
   ].map(l => {
     const style = l.dashes
       ? `background:repeating-linear-gradient(to right,${COLORS[l.key]} 0,${COLORS[l.key]} 4px,transparent 4px,transparent 7px);`
@@ -804,7 +832,7 @@ function renderProgress() {
   const xMainMinOrig = 0;
   const xMainMaxOrig = Math.max(0, labels.length - 1);
 
-  // ── Main line chart (WPM metrics, x-tick labels hidden) ───────────────────
+  // ── Main line chart (WPM metrics + accuracy on right axis, x-tick labels hidden) ──
   dP('main');
   pC.main = new Chart(EL.pMain, {
     type: 'line',
@@ -815,6 +843,7 @@ function renderProgress() {
         { label:'80th pct',  data:daily.map(d=>+d.p80WPM.toFixed(1)),  borderColor:COLORS.p80WPM,  backgroundColor:'transparent',           pointBackgroundColor:COLORS.p80WPM,  tension:CHART_STYLE.MAIN_LINE_TENSION, fill:false, pointRadius:PROGRESS_CONFIG.MAIN_POINT_RADIUS, pointHoverRadius:PROGRESS_CONFIG.MAIN_POINT_HOVER_RADIUS, borderDash:CHART_STYLE.DASH_80 },
         { label:'95th pct',  data:daily.map(d=>+d.p95WPM.toFixed(1)),  borderColor:COLORS.p95WPM,  backgroundColor:'transparent',           pointBackgroundColor:COLORS.p95WPM,  tension:CHART_STYLE.MAIN_LINE_TENSION, fill:false, pointRadius:PROGRESS_CONFIG.MAIN_POINT_RADIUS, pointHoverRadius:PROGRESS_CONFIG.MAIN_POINT_HOVER_RADIUS, borderDash:CHART_STYLE.DASH_95 },
         { label:'Best WPM',  data:daily.map(d=>+d.bestWPM.toFixed(1)), borderColor:COLORS.bestWPM, backgroundColor:'transparent',           pointBackgroundColor:COLORS.bestWPM, tension:CHART_STYLE.MAIN_LINE_TENSION, fill:false, pointRadius:PROGRESS_CONFIG.MAIN_POINT_RADIUS, pointHoverRadius:PROGRESS_CONFIG.MAIN_POINT_HOVER_RADIUS },
+        { label:'Avg acc %', data:daily.map(d=>+d.avgAcc.toFixed(1)),  borderColor:COLORS.avgAcc,  backgroundColor:'transparent',           pointBackgroundColor:COLORS.avgAcc,  tension:CHART_STYLE.MAIN_LINE_TENSION, fill:false, pointRadius:PROGRESS_CONFIG.MAIN_POINT_RADIUS, pointHoverRadius:PROGRESS_CONFIG.MAIN_POINT_HOVER_RADIUS, borderDash:CHART_STYLE.DASH_ACC, yAxisID:'y2' },
       ]
     },
     options: {
@@ -830,6 +859,16 @@ function renderProgress() {
           grid:{ color:gc },
           ticks:{ color:tc, font:{size:CHART_STYLE.AXIS_TICK_FONT_SIZE} },
           title:{ display:true, text:'WPM', color:tc, font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE} },
+          afterFit: fixAxisWidth(CHART_STYLE.SUBPLOT_AXIS_WIDTH_LEFT),
+        },
+        y2:{
+          position:'right',
+          grid:{ display:false },
+          ticks:{ color:COLORS.avgAcc, font:{size:CHART_STYLE.AXIS_TICK_FONT_SIZE} },
+          title:{ display:true, text:'Acc %', color:COLORS.avgAcc, font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE} },
+          suggestedMin: PROGRESS_CONFIG.ACC_SUGGESTED_MIN,
+          max: 100,
+          afterFit: fixAxisWidth(CHART_STYLE.SUBPLOT_AXIS_WIDTH_RIGHT),
         }
       },
       layout:{ padding:{ bottom:0 } }
@@ -865,7 +904,16 @@ function renderProgress() {
           grid:{ color:gc },
           ticks:{ color:tc, font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE}, stepSize:1 },
           title:{ display:true, text:'Tests', color:tc, font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE} },
-          min:0
+          min:0,
+          afterFit: fixAxisWidth(CHART_STYLE.SUBPLOT_AXIS_WIDTH_LEFT),
+        },
+        // Empty spacer so the plot area lines up with the main chart's accuracy axis
+        y2:{
+          position:'right',
+          grid:{ display:false },
+          border:{ display:false },
+          ticks:{ display:false },
+          afterFit: fixAxisWidth(CHART_STYLE.SUBPLOT_AXIS_WIDTH_RIGHT),
         }
       },
       layout:{ padding:{ top:0 } }
@@ -1009,55 +1057,6 @@ function renderProgress() {
   });
   pC.reg.$navBounds = { min: xMinOrig, max: xMaxOrig };
   syncRegNav(pC.reg, xMinOrig, xMaxOrig);
-
-  // ── Align both subplot plot-area edges so vertical grids fully match ───────
-  //
-  // Differences in axis/tick label widths can shift chartArea.left and
-  // chartArea.right independently across the two subplots. We normalize both
-  // edges by adding layout padding where needed.
-  //
-  //   1. Waiting two animation frames (double RAF) so both canvases have been
-  //      fully painted and Chart.js has measured chartArea.left.
-  //   2. Matching both left and right plot boundaries.
-  //   3. Calling update('none') with no animation.
-  //
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    const c1 = pC.main, c2 = pC.count;
-    if (!c1 || !c2) return;
-
-    const l1 = c1.chartArea.left,  r1 = c1.chartArea.right;
-    const l2 = c2.chartArea.left,  r2 = c2.chartArea.right;
-    const targetLeft  = Math.max(l1, l2);
-    const targetRight = Math.min(r1, r2);
-
-    const p1 = c1.options.layout.padding || {};
-    const p2 = c2.options.layout.padding || {};
-
-    const addL1 = Math.max(0, targetLeft - l1);
-    const addL2 = Math.max(0, targetLeft - l2);
-    const addR1 = Math.max(0, r1 - targetRight);
-    const addR2 = Math.max(0, r2 - targetRight);
-
-    const changed1 = addL1 > PROGRESS_CONFIG.ALIGN_EPSILON || addR1 > PROGRESS_CONFIG.ALIGN_EPSILON;
-    const changed2 = addL2 > PROGRESS_CONFIG.ALIGN_EPSILON || addR2 > PROGRESS_CONFIG.ALIGN_EPSILON;
-    if (!changed1 && !changed2) return;
-
-    c1.options.layout.padding = {
-      top: p1.top || 0,
-      right: (p1.right || 0) + addR1,
-      bottom: p1.bottom || 0,
-      left: (p1.left || 0) + addL1,
-    };
-    c2.options.layout.padding = {
-      top: p2.top || 0,
-      right: (p2.right || 0) + addR2,
-      bottom: p2.bottom || 0,
-      left: (p2.left || 0) + addL2,
-    };
-
-    c1.update('none');
-    c2.update('none');
-  }));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1164,12 +1163,19 @@ EL.zRs.addEventListener('click', () => {
   EL.zRaw.value='';
   EL.zMsg.textContent='';
   setStatus('');
+  lastAnalyzed = null;
 });
 
 EL.pClear.addEventListener('click', () => {
   if (!confirm('Clear all saved history? This cannot be undone.')) return;
   try { localStorage.removeItem(LS_KEY); } catch(e) {}
   renderProgress();
+});
+
+// Chart colours are baked in at render time, so redraw visible charts on theme change
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+  if (lastAnalyzed) analyze(lastAnalyzed);
+  if (document.getElementById('tab-progress').classList.contains('active')) renderProgress();
 });
 
 bindChartNav(EL.pMainNav, () => pC.main);

@@ -149,9 +149,10 @@ code {
 
 .finger-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 1.5rem; }
 .finger-card  { border-radius: var(--radius); padding: 10px 12px; }
-.finger-name  { font-size: 9.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: rgba(255,255,255,0.8); margin-bottom: 3px; }
-.finger-val   { font-size: 18px; font-weight: 500; color: #fff; margin-bottom: 2px; }
-.finger-hits  { font-size: 10px; color: rgba(255,255,255,0.68); }
+/* Text colour is set inline per card to contrast with its heat colour */
+.finger-name  { font-size: 9.5px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; opacity: .85; margin-bottom: 3px; }
+.finger-val   { font-size: 18px; font-weight: 500; margin-bottom: 2px; }
+.finger-hits  { font-size: 10px; opacity: .75; }
 
 .focus-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
 .focus-chip { background: var(--bg2); border: 0.5px solid var(--border); border-radius: var(--radius); padding: 8px 14px; }
@@ -181,9 +182,8 @@ code {
 
 /*
   The two subplot canvases sit in wrapper divs stacked with no gap between them.
-  After rendering, JavaScript measures each chart's left edge (where the
-  y-axis ends and the plot area begins) and adds padding to whichever is
-  narrower — this makes both plot areas start at the same x pixel.
+  Both charts pin their left and right y-axes to the same fixed widths
+  (CHART_STYLE.SUBPLOT_AXIS_WIDTH_*), so their plot areas always line up.
 */
 .subplot-wrap { margin-bottom: 1.5rem; }
 .chart-main-wrap  { position: relative; height: 260px; }
