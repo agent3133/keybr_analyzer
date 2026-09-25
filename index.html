@@ -34,6 +34,16 @@
       <input id="z-file" type="file" accept=".json,application/json" style="display:none;">
       <span id="z-msg" class="msg"></span>
     </div>
+
+    <div class="sync-box">
+      <p class="label">One-click sync from keybr.com</p>
+      <p class="sync-step">
+        <span>1. Drag this button to your bookmarks bar:</span>
+        <a id="z-bookmarklet" class="bookmarklet" href="#" title="Drag me to your bookmarks bar">keybr → Analyzer</a>
+      </p>
+      <p class="sync-step">2. Open <a href="https://www.keybr.com" target="_blank" rel="noopener">keybr.com</a> and click the bookmark. This page opens with all your typing data loaded, so you don't need to save a file.</p>
+      <p class="sync-note">Works whether or not you're signed in to keybr. Your data goes straight from keybr.com to this page in your browser and is never uploaded anywhere.</p>
+    </div>
   </div>
 
   <div id="z-dash" style="display:none;">
@@ -118,6 +128,7 @@
 </div>
 
 
+<script src="keybr_sync.js"></script>
 <script src="keybr_analyzer.js"></script>
 </body>
 </html>
