@@ -85,6 +85,9 @@ code {
 
 .row  { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .msg  { font-size: 12px; color: #E24B4A; }
+.status { font-size: 12px; color: var(--text2); }
+.status:empty { display: none; }
+.status.warn { color: #E24B4A; }
 
 .cards {
   display: grid;
