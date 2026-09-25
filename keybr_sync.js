@@ -61,14 +61,15 @@ function keybrSyncBookmarklet(analyzerUrl) {
     if (u32() !== 0x4b455942 || u32() !== 2) throw new Error('Unrecognized keybr data format');
     var sessions = [];
     while (pos < buf.byteLength) {
-      u8(); u8(); /* layout and text type ids, not used by the analyzer */
+      /* keybr's numeric layout/text type ids; the analyzer maps them to names */
+      var layoutXid = u8(), textTypeXid = u8();
       var ts = u32() * 1000;
       var time = vlq(), length = vlq(), errors = vlq(), n = vlq();
       var histogram = [];
       for (var i = 0; i < n; i++) {
         histogram.push({ codePoint: vlq(), hitCount: vlq(), missCount: vlq(), timeToType: vlq() });
       }
-      sessions.push({ timeStamp: new Date(ts).toISOString(), length: length, time: time, errors: errors, histogram: histogram });
+      sessions.push({ layoutXid: layoutXid, textTypeXid: textTypeXid, timeStamp: new Date(ts).toISOString(), length: length, time: time, errors: errors, histogram: histogram });
     }
     return sessions;
   }
@@ -91,7 +92,7 @@ function keybrSyncBookmarklet(analyzerUrl) {
             var histogram = Object.keys(r.h || {}).map(function (cp) {
               return { codePoint: +cp, hitCount: r.h[cp].h, missCount: r.h[cp].m, timeToType: r.h[cp].t };
             });
-            return { timeStamp: new Date(r.ts).toISOString(), length: r.n, time: r.t, errors: r.e, histogram: histogram };
+            return { layout: r.l, textType: r.m, timeStamp: new Date(r.ts).toISOString(), length: r.n, time: r.t, errors: r.e, histogram: histogram };
           }));
         };
       };
@@ -112,7 +113,8 @@ function keybrSyncBookmarklet(analyzerUrl) {
   var payload = null, ready = false, delivered = false;
   function trySend() {
     if (!ready || !payload || delivered) return;
-    win.postMessage({ type: 'keybr-analyzer:data', source: payload.source, sessions: payload.sessions }, analyzerOrigin);
+    /* version lets the analyzer spot an outdated bookmark that must be re-installed */
+    win.postMessage({ type: 'keybr-analyzer:data', version: 2, source: payload.source, sessions: payload.sessions }, analyzerOrigin);
   }
   function onMessage(e) {
     if (e.source !== win || e.origin !== analyzerOrigin || !e.data) return;

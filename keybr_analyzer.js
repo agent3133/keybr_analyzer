@@ -8,6 +8,36 @@ const FMAP = {
   y:'RI',h:'RI',n:'RI',u:'RI',j:'RI',m:'RI',
   i:'RM',k:'RM', o:'RR',l:'RR', p:'RP', ' ':'TH'
 };
+// German QWERTZ: Y and Z swap places, umlauts and ß sit under the right pinky
+const FMAP_DE = Object.freeze({ ...FMAP, y:'LP', z:'RI', 'ü':'RP', 'ö':'RP', 'ä':'RP', 'ß':'RP' });
+// keybr layout ids by the numeric id stored in its binary data
+// (generated from packages/keybr-keyboard/lib/layout.ts in github.com/aradzie/keybr.com)
+const KEYBR_LAYOUT_XIDS = Object.freeze({
+  0x10:'en-us', 0x11:'en-uk', 0x12:'en-jp', 0x15:'en-dvorak-prog', 0x16:'en-colemak-dh-iso',
+  0x17:'en-colemak-dh-iso-wide', 0x18:'en-dvorak', 0x19:'en-colemak', 0x1a:'en-workman',
+  0x1b:'en-colemak-dh', 0x1c:'en-colemak-dh-matrix', 0x1d:'en-canary-matrix', 0x1e:'en-canary',
+  0x1f:'en-colemak-dh-wide', 0x20:'de-de', 0x21:'de-ch', 0x22:'de-neo-2', 0x23:'de-bone',
+  0x24:'de-mine', 0x25:'de-noted', 0x26:'de-cmos', 0x30:'fr-fr', 0x31:'fr-ca', 0x32:'fr-ch',
+  0x33:'fr-bepo', 0x34:'fr-ergol', 0x35:'fr-optimot-ergo', 0x36:'fr-erglace', 0x37:'fr-ergopti',
+  0x40:'it-it', 0x48:'lt-lt', 0x49:'lv-lv', 0x4a:'fi-fi', 0x4b:'et-ee', 0x50:'es-es', 0x58:'pl-pl',
+  0x60:'pt-br', 0x62:'pt-pt', 0x70:'ru-ru', 0x71:'ru-statica-3x5', 0x74:'be-by', 0x78:'uk-ua',
+  0x80:'sv-se', 0x81:'cs-cz', 0x82:'sl-si', 0x83:'el-gr', 0x84:'he-il', 0x85:'nl-nl', 0x86:'nl-be',
+  0x87:'hu-hu', 0x88:'nb-no', 0x89:'tr-tr-q', 0x8a:'tr-tr-f', 0x8b:'en-norman', 0x8c:'en-halmak',
+  0x8d:'ar-sa', 0x8e:'ar-sa-102', 0x8f:'fa-ir-legacy', 0x90:'he-il-arkn', 0x91:'fa-ir',
+  0x92:'en-engram', 0x93:'en-nerps', 0x94:'en-nerps-matrix', 0x95:'en-hands-down-neu',
+  0x96:'en-sturdy', 0x97:'es-mx', 0x98:'pl-fwyr', 0x99:'en-graphite', 0x9a:'th-th',
+  0x9b:'th-th-pat', 0x9c:'th-th-man', 0x9d:'nb-no-kvikk', 0x9e:'nb-no-skarp', 0x9f:'nb-no-dvorak',
+  0xa0:'ro-ro', 0xa1:'en-gallium', 0xa2:'en-gallium-matrix', 0xa3:'en-hands-down-promethium',
+  0xa4:'en-aptv3', 0xa5:'en_focal', 0xa6:'de-adnw-but-xcv', 0xa7:'da-dk', 0xa8:'en-enthium-v6',
+  0xa9:'en-night-matrix', 0xaa:'en-mtgap', 0xab:'es-dvorak', 0xac:'es-latam-dvorak',
+  0xad:'en-graphite-angle-kp', 0xae:'en-kuntem', 0xaf:'en-hands-down-promethium-inverted',
+  0xb0:'en-gallium-nl', 0xb0:'ja-jp', 0xb1:'br-chwerty-maths', 0xb8:'en-enthium-v10',
+  0xb9:'en-enthium-v11', 0xba:'en-enthium-v13', 0xbb:'en-enthium-v14', 0xff:'custom',
+});
+const KEYBR_TEXT_TYPE_XIDS = Object.freeze({ 1:'generated', 2:'natural', 3:'numbers', 4:'code' });
+const UNKNOWN_LAYOUT = 'unknown';
+const LAYOUT_PREF_KEY = 'keybr_analyzer_layout';
+
 const FNAME = { LP:'L. Pinky', LR:'L. Ring', LM:'L. Middle', LI:'L. Index', TH:'Thumb', RI:'R. Index', RM:'R. Middle', RR:'R. Ring', RP:'R. Pinky' };
 const FORD  = ['LP','LR','LM','LI','TH','RI','RM','RR','RP'];
 const LS_KEY = 'keybr_history';   // pre-IndexedDB history location, read once for migration
@@ -105,6 +135,8 @@ const EL = Object.freeze({
   zIn: document.getElementById('z-in'),
   zDash: document.getElementById('z-dash'),
   zStatus: document.getElementById('z-status'),
+  zLayout: document.getElementById('z-layout'),
+  pLayout: document.getElementById('p-layout'),
   zRs: document.getElementById('z-rs'),
   pClear: document.getElementById('p-clear'),
 });
@@ -135,6 +167,7 @@ if (!Chart.registry.plugins.get('reg-nav-sync')) {
 // PURE HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
+function keyLabel(ch)  { if (ch === ' ') return 'SPC'; const u = ch.toUpperCase(); return u.length === 1 ? u : ch; }
 function cp2ch(cp)     { return cp === ANALYZE_CONFIG.SPACE_CODEPOINT ? ' ' : String.fromCodePoint(cp); }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function isDark()      { return window.matchMedia('(prefers-color-scheme: dark)').matches; }
@@ -292,6 +325,65 @@ function generateDemoSessions(days = 45, startWpm = 34, endWpm = 56) {
 function isValidSession(s)  { return !!s && typeof s === 'object' && Array.isArray(s.histogram); }
 function isHistorySession(s) { return isValidSession(s) && typeof s.timeStamp === 'string'; }
 
+// ── Keyboard layouts ─────────────────────────────────────────────────────────
+
+function layoutOf(s) { return (typeof s?.layout === 'string' && s.layout) ? s.layout : UNKNOWN_LAYOUT; }
+
+// Turn keybr's numeric layout/text type ids (sent by the bookmarklet) into names
+function normalizeSession(s) {
+  if (s.layoutXid == null && s.textTypeXid == null) return s;
+  const { layoutXid, textTypeXid, ...rest } = s;
+  if (!rest.layout && Number.isInteger(layoutXid)) rest.layout = KEYBR_LAYOUT_XIDS[layoutXid] || `keybr-${layoutXid}`;
+  if (!rest.textType && Number.isInteger(textTypeXid)) rest.textType = KEYBR_TEXT_TYPE_XIDS[textTypeXid] || `keybr-${textTypeXid}`;
+  return rest;
+}
+
+// "de-de" → "German (Germany)", "en-dvorak" → "English (Dvorak)"
+function layoutName(id) {
+  if (id === UNKNOWN_LAYOUT) return 'Unknown layout';
+  const [lang, ...rest] = id.split(/[-_]/);
+  let language = lang;
+  try { language = new Intl.DisplayNames(['en'], { type:'language' }).of(lang) || lang; } catch(e) {}
+  if (!rest.length) return language;
+  if (rest.length === 1 && /^[a-z]{2}$/.test(rest[0])) {
+    try {
+      const region = new Intl.DisplayNames(['en'], { type:'region' }).of(rest[0].toUpperCase());
+      if (region && region.toUpperCase() !== rest[0].toUpperCase()) return `${language} (${region})`;
+    } catch(e) {}
+  }
+  return `${language} (${rest.join(' ').replace(/\b\w/g, c => c.toUpperCase())})`;
+}
+
+function countLayouts(sessions) {
+  const counts = new Map();
+  for (const s of sessions) counts.set(layoutOf(s), (counts.get(layoutOf(s)) || 0) + 1);
+  return counts;
+}
+function mostCommonLayout(sessions) {
+  let best = UNKNOWN_LAYOUT, n = -1;
+  for (const [id, c] of countLayouts(sessions)) if (c > n) { best = id; n = c; }
+  return best;
+}
+function filterByLayout(sessions, layout) {
+  return layout === 'all' ? sessions : sessions.filter(s => layoutOf(s) === layout);
+}
+
+let layoutPref = 'all';
+try { layoutPref = localStorage.getItem(LAYOUT_PREF_KEY) || 'all'; } catch(e) {}
+
+// Fill a layout <select> from these sessions and return the layout to show.
+// The picker is hidden when there is only one layout to choose from.
+function populateLayoutSelect(select, sessions) {
+  const counts = [...countLayouts(sessions)].sort((a, b) => b[1] - a[1]);
+  select.closest('.layout-bar').hidden = counts.length <= 1;
+  select.innerHTML = '';
+  select.append(new Option(`All layouts · ${sessions.length.toLocaleString()}`, 'all'));
+  for (const [id, c] of counts) select.append(new Option(`${layoutName(id)} · ${c.toLocaleString()}`, id));
+  const shown = counts.some(([id]) => id === layoutPref) ? layoutPref : 'all';
+  select.value = shown;
+  return shown;
+}
+
 // Dedupe key: keybr's synced data only keeps whole seconds, while a file export
 // can carry milliseconds, so compare timestamps at second precision.
 function sessionKey(s) {
@@ -329,22 +421,32 @@ function openHistoryDB() {
   return dbPromise;
 }
 
-// Write sessions not already stored. Returns how many were added.
+// Write sessions not already stored. Sessions saved before layouts were
+// tracked get their layout filled in. Returns { added, updated }.
 async function putNewSessions(db, sessions) {
   const tx = db.transaction(DB_STORE, 'readwrite');
   const store = tx.objectStore(DB_STORE);
-  const seen = new Set(await idbRequest(store.getAllKeys()));
-  let added = 0;
+  const keys = await idbRequest(store.getAllKeys());
+  const values = await idbRequest(store.getAll());
+  const stored = new Map(keys.map((k, i) => [k, values[i]]));
+  let added = 0, updated = 0;
   for (const s of sessions) {
     if (!isHistorySession(s)) continue;
     const key = sessionKey(s);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    store.put(s, key);
-    added++;
+    const old = stored.get(key);
+    if (!old) {
+      stored.set(key, s);
+      store.put(s, key);
+      added++;
+    } else if (!old.layout && s.layout) {
+      const merged = { ...old, layout: s.layout, textType: old.textType ?? s.textType };
+      stored.set(key, merged);
+      store.put(merged, key);
+      updated++;
+    }
   }
   await idbDone(tx);
-  return added;
+  return { added, updated };
 }
 
 async function migrateLocalStorageHistory(db) {
@@ -367,13 +469,13 @@ async function loadHistory() {
   }
 }
 
-// Auto-save to history, deduplicating by timestamp. Returns { added, error }.
+// Auto-save to history, deduplicating by timestamp. Returns { added, updated, error }.
 async function saveToHistory(sessions) {
   try {
     const db = await openHistoryDB();
-    return { added: await putNewSessions(db, sessions), error: '' };
+    return { ...(await putNewSessions(db, sessions)), error: '' };
   } catch(e) {
-    return { added: 0, error: `Couldn't save sessions to history: ${e?.message || 'browser storage is unavailable'}.` };
+    return { added: 0, updated: 0, error: `Couldn't save sessions to history: ${e?.message || 'browser storage is unavailable'}.` };
   }
 }
 
@@ -502,6 +604,17 @@ const KEYBOARD_LAYOUT = [
   ],
 ];
 
+// Same physical ISO keyboard with different characters on some keys
+function remapKeyboard(rows, map) {
+  return rows.map(row => row.map(spec => (spec.key != null && map[spec.key] != null) ? { ...spec, key: map[spec.key] } : spec));
+}
+const KEYBOARD_LAYOUTS = Object.freeze({
+  'en-us': KEYBOARD_LAYOUT,
+  'de-de': remapKeyboard(KEYBOARD_LAYOUT, {
+    '`':'^', '-':'ß', '=':'´', y:'z', '[':'ü', ']':'+', ';':'ö', "'":'ä', z:'y', '/':'-',
+  }),
+});
+
 function getKeyboardKeyModel(spec) {
   const key = spec.key ?? null;
   const span = spec.span ?? 2;
@@ -512,7 +625,7 @@ function getKeyboardKeyModel(spec) {
   }
   return {
     key,
-    label: spec.label || (key === ' ' ? 'SPACE' : (key ? key.toUpperCase() : '')),
+    label: spec.label || (key === ' ' ? 'SPACE' : (key ? keyLabel(key) : '')),
     widthMul,
     isMeta: !!spec.meta,
     isSpace: !!spec.space || key === ' ',
@@ -520,7 +633,7 @@ function getKeyboardKeyModel(spec) {
   };
 }
 
-function renderKeyboardHeatmap(chars, noBg, noFg) {
+function renderKeyboardHeatmap(chars, noBg, noFg, kbdId = 'en-us', note = '') {
   if (!chars?.length) return { mn: 0, mx: 1 };
   const times = chars.map(c=>c.avg).filter(t=>t>0);
   const mn = times.length ? Math.min(...times) : 0;
@@ -530,7 +643,7 @@ function renderKeyboardHeatmap(chars, noBg, noFg) {
 
   const kbd = EL.zKbd;
   kbd.innerHTML = '';
-  KEYBOARD_LAYOUT.forEach((row) => {
+  KEYBOARD_LAYOUTS[kbdId].forEach((row) => {
     const rDiv = document.createElement('div');
     rDiv.className = 'kbd-row';
     row.forEach(spec => {
@@ -570,6 +683,7 @@ function renderKeyboardHeatmap(chars, noBg, noFg) {
   const legDiv = document.createElement('div');
   legDiv.className='kbd-legend';
   legDiv.innerHTML='Fast <span class="legend-grad"></span> Slow';
+  if (note) legDiv.append(` · ${note}`);
   kbd.appendChild(legDiv);
   return { mn, mx };
 }
@@ -593,7 +707,7 @@ function renderSlowestKeys(chars, mn, mx, gc, tc) {
   sw.style.cssText = `position:relative;height:${Math.max(ANALYZE_CONFIG.BAR_MIN_HEIGHT, sl.length * ANALYZE_CONFIG.BAR_ROW_HEIGHT + ANALYZE_CONFIG.BAR_HEIGHT_PADDING)}px;`;
   aC.slow = new Chart(slowCanvas, {
     type:'bar',
-    data:{ labels:sl.map(c=>c.ch===' '?'SPC':c.ch.toUpperCase()), datasets:[{ data:sl.map(c=>Math.round(c.avg)), backgroundColor:sl.map(c=>heatCSS(c.avg,mn,mx)), borderRadius:4, borderWidth:0 }] },
+    data:{ labels:sl.map(c=>keyLabel(c.ch)), datasets:[{ data:sl.map(c=>Math.round(c.avg)), backgroundColor:sl.map(c=>heatCSS(c.avg,mn,mx)), borderRadius:4, borderWidth:0 }] },
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:x=>`${x.parsed.x} ms`}} }, scales:{ x:{grid:{color:gc},ticks:{color:tc,font:{size:CHART_STYLE.AXIS_TICK_FONT_SIZE}},title:{display:true,text:'ms',color:tc,font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE}}}, y:{grid:{display:false},ticks:{color:tc,font:{size:CHART_STYLE.BAR_Y_TICK_FONT_SIZE,weight:'500'}}} } }
   });
 }
@@ -618,7 +732,7 @@ function renderErrorRate(chars, gc, tc) {
   ew.style.cssText = `position:relative;height:${Math.max(ANALYZE_CONFIG.BAR_MIN_HEIGHT, ec.length * ANALYZE_CONFIG.BAR_ROW_HEIGHT + ANALYZE_CONFIG.BAR_HEIGHT_PADDING)}px;`;
   aC.err = new Chart(errCanvas, {
     type:'bar',
-    data:{ labels:ec.map(c=>c.ch===' '?'SPC':c.ch.toUpperCase()), datasets:[{ data:ec.map(c=>+c.er.toFixed(1)), backgroundColor:'rgba(226,75,74,0.78)', borderRadius:4, borderWidth:0 }] },
+    data:{ labels:ec.map(c=>keyLabel(c.ch)), datasets:[{ data:ec.map(c=>+c.er.toFixed(1)), backgroundColor:'rgba(226,75,74,0.78)', borderRadius:4, borderWidth:0 }] },
     options:{ indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:x=>`${x.parsed.x}% miss rate`}} }, scales:{ x:{grid:{color:gc},ticks:{color:tc,font:{size:CHART_STYLE.AXIS_TICK_FONT_SIZE}},title:{display:true,text:'%',color:tc,font:{size:CHART_STYLE.AXIS_TITLE_FONT_SIZE}}}, y:{grid:{display:false},ticks:{color:tc,font:{size:CHART_STYLE.BAR_Y_TICK_FONT_SIZE,weight:'500'}}} } }
   });
 }
@@ -650,7 +764,7 @@ function renderAnalyzeTrend(sessions, wpms, accs, gc, tc) {
   syncTrendNav(aC.trend, xTrendMinOrig, xTrendMaxOrig);
 }
 
-function renderFingerAnalysis(chars) {
+function renderFingerAnalysis(chars, fmap = FMAP) {
   if (!chars?.length) {
     EL.zFg.innerHTML = '';
     return;
@@ -658,7 +772,7 @@ function renderFingerAnalysis(chars) {
   const fd = {};
   for (const c of chars) {
     if (!c?.ch) continue;
-    const fi = FMAP[c.ch] || '?';
+    const fi = fmap[c.ch] || '?';
     if (!fd[fi]) fd[fi]={wt:0,cnt:0,hits:0,misses:0};
     if (c.avg > 0) {
       fd[fi].wt += c.avg * c.hits;
@@ -710,7 +824,7 @@ function renderFocusKeys(chars, mn, mx) {
   scored.forEach(w => {
     const chip = document.createElement('div');
     chip.className='focus-chip';
-    chip.innerHTML=`<span class="focus-key">${w.ch===' '?'SPC':w.ch.toUpperCase()}</span><span class="focus-sub">${Math.round(w.avg)}ms · ${w.er.toFixed(1)}% errors</span>`;
+    chip.innerHTML=`<span class="focus-key">${keyLabel(w.ch)}</span><span class="focus-sub">${Math.round(w.avg)}ms · ${w.er.toFixed(1)}% errors</span>`;
     wg.appendChild(chip);
   });
   wkEl.appendChild(wg);
@@ -725,6 +839,12 @@ let lastAnalyzed = null;   // kept so charts can be redrawn when the theme chang
 function analyze(sessions) {
   if (!sessions?.length) return;
   lastAnalyzed = sessions;
+  const layout = populateLayoutSelect(EL.zLayout, sessions);
+  renderAnalysis(filterByLayout(sessions, layout), layout);
+}
+
+function renderAnalysis(sessions, layout) {
+  if (!sessions?.length) return;
   const palette = analyzePalette();
   const chars = buildCharacterStats(sessions);
   if (!chars.length) return;
@@ -732,11 +852,14 @@ function analyze(sessions) {
   const accs = sessions.map(sessionAcc);
 
   renderAnalyzeCards(sessions, wpms, accs);
-  const { mn, mx } = renderKeyboardHeatmap(chars, palette.noBg, palette.noFg);
+  const shownLayout = layout === 'all' ? mostCommonLayout(sessions) : layout;
+  const kbdId = KEYBOARD_LAYOUTS[shownLayout] ? shownLayout : 'en-us';
+  const kbdNote = kbdId === shownLayout ? '' : 'shown on a US keyboard (no drawing for this layout yet)';
+  const { mn, mx } = renderKeyboardHeatmap(chars, palette.noBg, palette.noFg, kbdId, kbdNote);
   renderSlowestKeys(chars, mn, mx, palette.gc, palette.tc);
   renderErrorRate(chars, palette.gc, palette.tc);
   renderAnalyzeTrend(sessions, wpms, accs, palette.gc, palette.tc);
-  renderFingerAnalysis(chars);
+  renderFingerAnalysis(chars, kbdId === 'de-de' ? FMAP_DE : FMAP);
   renderFocusKeys(chars, mn, mx);
 }
 
@@ -856,14 +979,15 @@ function buildDailyStats(sessions) {
 }
 
 async function renderProgress() {
-  const history = await loadHistory();
+  const allHistory = await loadHistory();
   const emptyEl = EL.pEmpty;
   const dashEl  = EL.pDash;
 
-  if (!history.length) {
+  if (!allHistory.length) {
     emptyEl.style.display='block'; dashEl.style.display='none'; return;
   }
   emptyEl.style.display='none'; dashEl.style.display='block';
+  const history = filterByLayout(allHistory, populateLayoutSelect(EL.pLayout, allHistory));
 
   const daily   = buildDailyStats(history);
   const dark    = isDark();
@@ -1213,7 +1337,7 @@ EL.zGo.addEventListener('click', async () => {
   try {
     const p = JSON.parse(raw);
     const all = Array.isArray(p) ? p : [p];
-    sessions = all.filter(isValidSession);
+    sessions = all.filter(isValidSession).map(normalizeSession);
     skipped = all.length - sessions.length;
     if (!sessions.length) throw new Error('no sessions with a histogram field');
   } catch(e) { msg.textContent='Invalid JSON: '+e.message; return; }
@@ -1255,12 +1379,16 @@ function receiveKeybrSync() {
     window.removeEventListener('message', onMessage);
     e.source.postMessage({ type: 'keybr-analyzer:received' }, e.origin);
 
-    const sessions = Array.isArray(e.data.sessions) ? e.data.sessions.filter(isValidSession) : [];
+    const sessions = Array.isArray(e.data.sessions) ? e.data.sessions.filter(isValidSession).map(normalizeSession) : [];
     if (!sessions.length) { EL.zMsg.textContent = 'keybr.com sent no usable sessions.'; return; }
-    const { added, error } = await saveToHistory(sessions);
+    const { added, updated, error } = await saveToHistory(sessions);
     const from = e.data.source === 'browser' ? 'this browser on keybr.com' : 'your keybr.com account';
-    const status = error || `Synced ${sessions.length} session${sessions.length!==1?'s':''} from ${from} · ${added} new.`;
-    showDashboard(sessions, status, !!error);
+    let status = error || `Synced ${sessions.length} session${sessions.length!==1?'s':''} from ${from} · ${added} new` +
+      (updated ? ` · keyboard layout added to ${updated} saved session${updated!==1?'s':''}` : '') + '.';
+    // Bookmarks installed before version 2 don't send keyboard layouts
+    const outdated = !error && !(e.data.version >= 2);
+    if (outdated) status += ' Your keybr bookmark is out of date, so keyboard layouts were not included. Click "← New analysis" at the bottom, then drag the "keybr → Analyzer" button to your bookmarks bar to replace the old bookmark.';
+    showDashboard(sessions, status, !!error || outdated);
   });
 }
 
@@ -1292,6 +1420,14 @@ EL.pClear.addEventListener('click', async () => {
   try { await clearHistory(); } catch(e) {}
   renderProgress();
 });
+
+// Layout picker: one shared choice for both tabs, remembered in this browser
+[EL.zLayout, EL.pLayout].forEach(select => select.addEventListener('change', () => {
+  layoutPref = select.value;
+  try { localStorage.setItem(LAYOUT_PREF_KEY, layoutPref); } catch(e) {}
+  if (lastAnalyzed) analyze(lastAnalyzed);
+  if (document.getElementById('tab-progress').classList.contains('active')) renderProgress();
+}));
 
 // Chart colours are baked in at render time, so redraw visible charts on theme change
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {

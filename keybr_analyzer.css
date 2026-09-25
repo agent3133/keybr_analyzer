@@ -98,6 +98,13 @@ code {
 .bookmarklet:active { cursor: grabbing; }
 
 .status { font-size: 12px; color: var(--text2); }
+.layout-bar { display: flex; align-items: center; gap: 10px; margin-top: 1rem; font-size: 13px; color: var(--text2); }
+.layout-bar[hidden] { display: none; }
+.layout-select {
+  font-family: var(--font); font-size: 13px; color: var(--text);
+  background: var(--bg2); border: 0.5px solid var(--border2);
+  border-radius: var(--radius); padding: 6px 10px;
+}
 .status:empty { display: none; }
 .status.warn { color: #E24B4A; }
 
