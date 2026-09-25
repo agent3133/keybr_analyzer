@@ -20,6 +20,11 @@ Everything runs in your browser. Your data is never uploaded anywhere.
 - **Daily stats:** average, 80th percentile, 95th percentile and best WPM for each day, with the number of tests you did that day.
 - **Progress estimate:** a regression over your last 10 active days that shows how many WPM you gain per 10 tests, with a short projection ahead.
 
+### Keyboard layouts
+If your data covers more than one keyboard layout (for example English (US) and German), a **Keyboard layout** picker appears on both tabs. It shows each layout's session count and lets you look at each layout's stats and progress separately. Your choice is remembered.
+- **Heatmap:** English (US) and German (Germany) are drawn with their own key positions (QWERTZ, with ü ö ä ß) and finger assignments. Other layouts are shown on the US keyboard for now.
+- **Where layouts come from:** the one-click sync and keybr's file export both record each session's layout.
+
 Each session you analyze is saved in your browser's IndexedDB storage, and repeated sessions are skipped, so your history builds up over time. There's room for many thousands of sessions. Use **Clear history** on the Progress tab to start over.
 
 ## Usage
@@ -81,6 +86,10 @@ python -m http.server 8000
 ```
 
 Then open http://localhost:8000.
+
+## Deploying
+
+GitHub Pages lets browsers cache files for up to 10 minutes. When you change `keybr_analyzer.js`, `keybr_sync.js` or `keybr_analyzer.css`, bump the `?v=` number on all three links in `index.html` so visitors get the new files right away.
 
 ## Project structure
 

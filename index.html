@@ -5,7 +5,8 @@
   <title>keybr Stats Analyzer</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
-  <link rel="stylesheet" href="keybr_analyzer.css">
+  <!-- Bump ?v= on these three files with every change, so browsers don't keep an old cached copy -->
+  <link rel="stylesheet" href="keybr_analyzer.css?v=6">
 </head>
 <body>
 
@@ -48,6 +49,10 @@
 
   <div id="z-dash" style="display:none;">
     <p id="z-status" class="status"></p>
+    <div class="layout-bar" hidden>
+      <label for="z-layout">Keyboard layout</label>
+      <select id="z-layout" class="layout-select"></select>
+    </div>
     <div class="cards" id="z-cards"></div>
 
     <p class="label">Reaction time heatmap — average ms per key</p>
@@ -103,6 +108,10 @@
       <button id="p-clear" class="btn-danger">Clear history</button>
     </div>
 
+    <div class="layout-bar" hidden>
+      <label for="p-layout">Keyboard layout</label>
+      <select id="p-layout" class="layout-select"></select>
+    </div>
     <div class="cards" id="p-cards"></div>
 
     <p class="label">WPM over time</p>
@@ -128,7 +137,7 @@
 </div>
 
 
-<script src="keybr_sync.js"></script>
-<script src="keybr_analyzer.js"></script>
+<script src="keybr_sync.js?v=6"></script>
+<script src="keybr_analyzer.js?v=6"></script>
 </body>
 </html>
