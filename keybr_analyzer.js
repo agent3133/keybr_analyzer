@@ -1122,21 +1122,28 @@ function showDashboard(sessions, statusText = '', warn = false) {
   analyze(sessions);
 }
 
-// Auto-save to history, deduplicating by timeStamp. Returns a status message or ''.
+// Dedupe key: keybr's synced data only keeps whole seconds, while a file export
+// can carry milliseconds, so compare timestamps at second precision.
+function sessionKey(s) {
+  const ms = Date.parse(s.timeStamp);
+  return Number.isNaN(ms) ? s.timeStamp : Math.floor(ms / 1000);
+}
+
+// Auto-save to history, deduplicating by timestamp. Returns { added, error }.
 function saveToHistory(sessions) {
   const existing = loadHistory();
-  const seenTS = new Set(existing.map(s => s.timeStamp));
+  const seen = new Set(existing.map(sessionKey));
   const newOnes = [];
   for (const s of sessions) {
-    if (!isHistorySession(s) || seenTS.has(s.timeStamp)) continue;
-    seenTS.add(s.timeStamp);
+    if (!isHistorySession(s) || seen.has(sessionKey(s))) continue;
+    seen.add(sessionKey(s));
     newOnes.push(s);
   }
-  if (!newOnes.length) return '';
+  if (!newOnes.length) return { added: 0, error: '' };
   if (!saveHistory([...existing, ...newOnes])) {
-    return `Couldn't save ${newOnes.length} new session${newOnes.length!==1?'s':''} to history: browser storage is full or blocked.`;
+    return { added: 0, error: `Couldn't save ${newOnes.length} new session${newOnes.length!==1?'s':''} to history: browser storage is full or blocked.` };
   }
-  return '';
+  return { added: newOnes.length, error: '' };
 }
 
 EL.zGo.addEventListener('click', () => {
@@ -1152,10 +1159,65 @@ EL.zGo.addEventListener('click', () => {
     if (!sessions.length) throw new Error('no sessions with a histogram field');
   } catch(e) { msg.textContent='Invalid JSON: '+e.message; return; }
 
-  const saveError = saveToHistory(sessions);
+  const { error: saveError } = saveToHistory(sessions);
   const skippedNote = skipped ? `Skipped ${skipped} entr${skipped!==1?'ies':'y'} without a histogram. ` : '';
   showDashboard(sessions, (skippedNote + saveError).trim(), !!saveError);
 });
+
+// ── keybr.com sync (receiving side of keybr_sync.js) ─────────────────────────
+//
+// The bookmarklet opens this page with #keybr-sync. We keep telling the opener
+// we're ready until it sends the data, and only accept data from keybr.com.
+const KEYBR_ORIGINS = ['https://www.keybr.com', 'https://keybr.com'];
+const SYNC_WAIT_MS = 60000;
+
+function receiveKeybrSync() {
+  if (location.hash !== '#keybr-sync') return;
+  history.replaceState(null, '', location.pathname + location.search);
+  const opener = window.opener;
+  if (!opener) return;
+
+  EL.zMsg.textContent = 'Waiting for data from keybr.com…';
+  const ping = () => KEYBR_ORIGINS.forEach(o => {
+    try { opener.postMessage({ type: 'keybr-analyzer:ready' }, o); } catch(e) {}
+  });
+  ping();
+  const timer = setInterval(ping, 500);
+  const giveUp = setTimeout(() => {
+    clearInterval(timer);
+    EL.zMsg.textContent = 'No data arrived from keybr.com. Click the bookmark on keybr.com again.';
+  }, SYNC_WAIT_MS);
+
+  window.addEventListener('message', function onMessage(e) {
+    if (e.source !== opener || !KEYBR_ORIGINS.includes(e.origin)) return;
+    if (e.data?.type !== 'keybr-analyzer:data') return;
+    clearInterval(timer);
+    clearTimeout(giveUp);
+    window.removeEventListener('message', onMessage);
+    e.source.postMessage({ type: 'keybr-analyzer:received' }, e.origin);
+
+    const sessions = Array.isArray(e.data.sessions) ? e.data.sessions.filter(isValidSession) : [];
+    if (!sessions.length) { EL.zMsg.textContent = 'keybr.com sent no usable sessions.'; return; }
+    const { added, error } = saveToHistory(sessions);
+    const from = e.data.source === 'browser' ? 'this browser on keybr.com' : 'your keybr.com account';
+    const status = error || `Synced ${sessions.length} session${sessions.length!==1?'s':''} from ${from} · ${added} new.`;
+    showDashboard(sessions, status, !!error);
+  });
+}
+
+function setupBookmarklet() {
+  const link = document.getElementById('z-bookmarklet');
+  if (!link || typeof keybrSyncBookmarklet !== 'function') return;
+  const analyzerUrl = location.origin + location.pathname;
+  link.href = 'javascript:' + encodeURIComponent(`(${keybrSyncBookmarklet})(${JSON.stringify(analyzerUrl)})`);
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    EL.zMsg.textContent = 'Drag this button to your bookmarks bar, then click it while on keybr.com.';
+  });
+}
+
+setupBookmarklet();
+receiveKeybrSync();
 
 EL.zRs.addEventListener('click', () => {
   EL.zIn.style.display='block';

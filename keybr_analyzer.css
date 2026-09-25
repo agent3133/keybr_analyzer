@@ -85,6 +85,18 @@ code {
 
 .row  { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
 .msg  { font-size: 12px; color: #E24B4A; }
+.sync-box { margin-top: 1.5rem; padding: 14px 16px; background: var(--bg2); border-radius: var(--radius); }
+.sync-step { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.6; }
+.sync-step .bookmarklet { margin-left: 6px; }
+.sync-step a:not(.bookmarklet) { color: #378ADD; }
+.sync-note { font-size: 12px; color: var(--text3); margin-top: 8px; }
+.bookmarklet {
+  display: inline-block; font-size: 13px; font-weight: 500; text-decoration: none;
+  color: #fff; background: #378ADD; border-radius: var(--radius); padding: 6px 14px;
+  cursor: grab;
+}
+.bookmarklet:active { cursor: grabbing; }
+
 .status { font-size: 12px; color: var(--text2); }
 .status:empty { display: none; }
 .status.warn { color: #E24B4A; }

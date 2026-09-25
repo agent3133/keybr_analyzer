@@ -24,9 +24,25 @@ Each session you analyze is saved in your browser's `localStorage`, and repeated
 
 ## Usage
 
-1. Export your typing data from keybr.com as JSON. You'll find the option on your keybr profile page.
-2. Open the [live site](https://agent3133.github.io/keybr_analyzer/).
-3. Click **Open file…** and pick the export, or paste the JSON into the text box and click **Analyze**.
+### One-click sync (recommended)
+
+1. Open the [live site](https://agent3133.github.io/keybr_analyzer/) and drag the **keybr → Analyzer** button to your bookmarks bar.
+2. Whenever you want fresh stats, open [keybr.com](https://www.keybr.com) and click the bookmark.
+
+The analyzer opens with all your typing data loaded. Sessions already in your history are skipped, so you can sync as often as you like.
+
+How it works: the bookmark runs on keybr.com and reads your data there.
+- If you're signed in, it reads your account data from keybr's `/_/sync/data` endpoint.
+- If you're not signed in, it reads the history keybr keeps in your browser.
+
+It then passes the data to the analyzer window with `postMessage`. Both sides check the other's origin, and the data never goes anywhere else. The bookmark is self-contained and loads no external code into your keybr session.
+
+The sync depends on keybr's internal data format, which keybr can change without notice. If the sync stops working, use the file export below.
+
+### From a file
+
+1. On your keybr.com profile page, click **Download data** to save `typing-data.json`.
+2. On the analyzer, click **Open file…** and pick that file, or paste the JSON into the text box and click **Analyze**.
 
 To try the analyzer without your own data, click **See Demo**.
 
@@ -72,6 +88,7 @@ Then open http://localhost:8000.
 |---|---|
 | `index.html` | Page markup and tabs |
 | `keybr_analyzer.js` | Parsing, statistics and chart rendering |
+| `keybr_sync.js` | Source of the one-click sync bookmarklet (runs on keybr.com) |
 | `keybr_analyzer.css` | Styles, including light and dark themes |
 | `demo_keybr_history.json` | Sample data for the **See Demo** button |
 
