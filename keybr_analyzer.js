@@ -5,7 +5,7 @@
 const FMAP = {
   q:'LP',a:'LP',z:'LP', w:'LR',s:'LR',x:'LR', e:'LM',d:'LM',c:'LM',
   r:'LI',f:'LI',v:'LI',t:'LI',g:'LI',b:'LI',
-  y:'RI                                 ',h:'RI',n:'RI',u:'RI',j:'RI',m:'RI',
+  y:'RI',h:'RI',n:'RI',u:'RI',j:'RI',m:'RI',
   i:'RM',k:'RM', o:'RR',l:'RR', p:'RP', ' ':'TH'
 };
 const FNAME = { LP:'L. Pinky', LR:'L. Ring', LM:'L. Middle', LI:'L. Index', TH:'Thumb', RI:'R. Index', RM:'R. Middle', RR:'R. Ring', RP:'R. Pinky' };
@@ -16,7 +16,7 @@ const ANALYZE_CONFIG = Object.freeze({
   SLOWEST_KEYS_LIMIT: 8,
   ERROR_KEYS_LIMIT: 8,
   FOCUS_KEYS_LIMIT: 6,
-  FOCUS_ERROR_WEIGHT: 2.5,
+  FOCUS_ERROR_WEIGHT: 1,
   BAR_MIN_HEIGHT: 160,
   BAR_ROW_HEIGHT: 38,
   BAR_HEIGHT_PADDING: 60,
@@ -100,6 +100,7 @@ const EL = Object.freeze({
   zMsg: document.getElementById('z-msg'),
   zIn: document.getElementById('z-in'),
   zDash: document.getElementById('z-dash'),
+  zStatus: document.getElementById('z-status'),
   zRs: document.getElementById('z-rs'),
   pClear: document.getElementById('p-clear'),
 });
@@ -266,8 +267,16 @@ function generateDemoSessions(days = 45, startWpm = 34, endWpm = 56) {
 // LOCAL STORAGE  (persists across browser sessions)
 // ─────────────────────────────────────────────────────────────────────────────
 
+// A session is usable if it has a histogram; history also needs a timeStamp
+function isValidSession(s)  { return !!s && typeof s === 'object' && Array.isArray(s.histogram); }
+function isHistorySession(s) { return isValidSession(s) && typeof s.timeStamp === 'string'; }
+
 function loadHistory() {
-  try { const r = localStorage.getItem(LS_KEY); return r ? JSON.parse(r) : []; }
+  try {
+    const r = localStorage.getItem(LS_KEY);
+    const parsed = r ? JSON.parse(r) : [];
+    return Array.isArray(parsed) ? parsed.filter(isHistorySession) : [];
+  }
   catch(e) { return []; }
 }
 function saveHistory(sessions) {
@@ -458,7 +467,7 @@ function renderKeyboardHeatmap(chars, noBg, noFg) {
 
   const legDiv = document.createElement('div');
   legDiv.className='kbd-legend';
-  legDiv.innerHTML='Fast <span class="legend-grad"></span> Slow &nbsp;&nbsp; ⚠ = has errors';
+  legDiv.innerHTML='Fast <span class="legend-grad"></span> Slow';
   kbd.appendChild(legDiv);
   return { mn, mx };
 }
@@ -573,15 +582,18 @@ function renderFingerAnalysis(chars) {
   });
 }
 
-function renderFocusKeys(chars, mn) {
+function renderFocusKeys(chars, mn, mx) {
   if (!chars?.length) {
     EL.zWk.innerHTML = '';
     return;
   }
-  const baseline = mn > 0 ? mn : 1;
+  // Scale slowness and error rate to 0..1 each so neither dominates by units alone
+  const maxEr = Math.max(0, ...chars.map(c=>c.er));
+  const slowNorm = c => (c.avg > 0 && mx > mn) ? (c.avg - mn) / (mx - mn) : 0;
+  const errNorm  = c => maxEr > 0 ? c.er / maxEr : 0;
   const scored = [...chars]
     .filter(c=>c.avg>0||c.er>0)
-    .map(c=>({...c, score:(c.avg/baseline)+(c.er*ANALYZE_CONFIG.FOCUS_ERROR_WEIGHT)}))
+    .map(c=>({...c, score:slowNorm(c)+errNorm(c)*ANALYZE_CONFIG.FOCUS_ERROR_WEIGHT}))
     .sort((a,b)=>b.score-a.score)
     .slice(0, ANALYZE_CONFIG.FOCUS_KEYS_LIMIT);
   if (!scored.length) {
@@ -619,7 +631,7 @@ function analyze(sessions) {
   renderErrorRate(chars, palette.gc, palette.tc);
   renderAnalyzeTrend(sessions, wpms, accs, palette.gc, palette.tc);
   renderFingerAnalysis(chars);
-  renderFocusKeys(chars, mn);
+  renderFocusKeys(chars, mn, mx);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1095,33 +1107,55 @@ EL.zDemo.addEventListener('click', async () => {
     // Keep using generated fallback data.
   }
 
-  EL.zRaw.value = JSON.stringify(demoSessions, null, 2);
-  EL.zGo.click();
-  if (!loadedFromFile) {
-    msg.textContent = 'Loaded built-in demo data.';
-  }
+  showDashboard(demoSessions, loadedFromFile ? 'Demo data (not saved to your history).' : 'Built-in demo data (not saved to your history).');
 });
+
+function setStatus(text, warn = false) {
+  EL.zStatus.textContent = text;
+  EL.zStatus.classList.toggle('warn', warn);
+}
+
+function showDashboard(sessions, statusText = '', warn = false) {
+  EL.zMsg.textContent = '';
+  EL.zIn.style.display = 'none';
+  EL.zDash.style.display = 'block';
+  setStatus(statusText, warn);
+  analyze(sessions);
+}
+
+// Auto-save to history, deduplicating by timeStamp. Returns a status message or ''.
+function saveToHistory(sessions) {
+  const existing = loadHistory();
+  const seenTS = new Set(existing.map(s => s.timeStamp));
+  const newOnes = [];
+  for (const s of sessions) {
+    if (!isHistorySession(s) || seenTS.has(s.timeStamp)) continue;
+    seenTS.add(s.timeStamp);
+    newOnes.push(s);
+  }
+  if (!newOnes.length) return '';
+  if (!saveHistory([...existing, ...newOnes])) {
+    return `Couldn't save ${newOnes.length} new session${newOnes.length!==1?'s':''} to history: browser storage is full or blocked.`;
+  }
+  return '';
+}
 
 EL.zGo.addEventListener('click', () => {
   const raw = EL.zRaw.value.trim();
   const msg = EL.zMsg;
   if (!raw) { msg.textContent='Paste some JSON first.'; return; }
-  let sessions;
+  let sessions, skipped;
   try {
     const p = JSON.parse(raw);
-    sessions = Array.isArray(p) ? p : [p];
-    if (!sessions[0]?.histogram) throw new Error('missing histogram field');
+    const all = Array.isArray(p) ? p : [p];
+    sessions = all.filter(isValidSession);
+    skipped = all.length - sessions.length;
+    if (!sessions.length) throw new Error('no sessions with a histogram field');
   } catch(e) { msg.textContent='Invalid JSON: '+e.message; return; }
-  msg.textContent='';
-  EL.zIn.style.display='none';
-  EL.zDash.style.display='block';
-  analyze(sessions);
 
-  // Auto-save to history, deduplicating by timeStamp
-  const existing = loadHistory();
-  const existingTS = new Set(existing.map(s => s.timeStamp));
-  const newOnes = sessions.filter(s => !existingTS.has(s.timeStamp));
-  if (newOnes.length) saveHistory([...existing, ...newOnes]);
+  const saveError = saveToHistory(sessions);
+  const skippedNote = skipped ? `Skipped ${skipped} entr${skipped!==1?'ies':'y'} without a histogram. ` : '';
+  showDashboard(sessions, (skippedNote + saveError).trim(), !!saveError);
 });
 
 EL.zRs.addEventListener('click', () => {
@@ -1129,11 +1163,12 @@ EL.zRs.addEventListener('click', () => {
   EL.zDash.style.display='none';
   EL.zRaw.value='';
   EL.zMsg.textContent='';
+  setStatus('');
 });
 
 EL.pClear.addEventListener('click', () => {
   if (!confirm('Clear all saved history? This cannot be undone.')) return;
-  localStorage.removeItem(LS_KEY);
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
   renderProgress();
 });
 
